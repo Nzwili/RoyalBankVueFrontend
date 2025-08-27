@@ -41,13 +41,12 @@
         </div>
 
         <div class="chart-card large">
-          <h3>Monthly Repayments (stacked)</h3>
+          <h3>Monthly Repayments</h3>
           <canvas ref="chartMonthly"></canvas>
         </div>
       </div>
     </div>
 
-    <!-- helpful note for huge month counts -->
     <p v-if="isValid && months > 240" class="note">
       Note: very large month counts may create many bars and affect performance.
     </p>
@@ -55,15 +54,25 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick } from "vue";
-import Chart from "chart.js/auto"; // make sure `npm i chart.js` was run
+import { ref, computed, watch, nextTick, onMounted } from "vue";
+import Chart from "chart.js/auto";
+import { useAuth } from "../composables/useAuth.js";
+import { useRouter } from "vue-router";
+
+const router = useRouter();
+const { user, loadUser, requireAuth } = useAuth();
+
+onMounted(() => {
+  loadUser();
+  requireAuth(); // redirect if not logged in
+});
 
 // Inputs
 const amount = ref(null);
 const months = ref(null);
 const selectedLoan = ref("");
 
-// Loan types (you can change rates)
+// Loan types
 const loanTypes = [
   { type: "Personal Loan", rate: 10 },
   { type: "Car Loan", rate: 8 },
@@ -71,14 +80,11 @@ const loanTypes = [
   { type: "Business Loan", rate: 12 }
 ];
 
-// derived state
+// Computed values
 const monthlyRate = computed(() =>
-  selectedLoan.value && typeof selectedLoan.value.rate === "number"
-    ? selectedLoan.value.rate / 100 / 12
-    : 0
+  selectedLoan.value ? selectedLoan.value.rate / 100 / 12 : 0
 );
 
-// handle zero-rate (r===0) case
 const monthlyPayment = computed(() => {
   const P = Number(amount.value) || 0;
   const n = Number(months.value) || 0;
@@ -92,192 +98,85 @@ const totalRepayment = computed(() => monthlyPayment.value * (Number(months.valu
 const totalInterest = computed(() => totalRepayment.value - (Number(amount.value) || 0));
 const isValid = computed(() => selectedLoan.value && amount.value > 0 && months.value > 0);
 
-// chart refs + instances
+// Chart refs
 const chartBreakdown = ref(null);
 const chartMonthly = ref(null);
 let chartBreakdownInstance = null;
 let chartMonthlyInstance = null;
 
-// amortization schedule generator
+// Amortization schedule
 function generateAmortizationSchedule(P, r, n, monthlyPaymentVal) {
   const schedule = [];
   let balance = P;
   for (let i = 0; i < n; i++) {
     const interest = balance * r;
-    // guard negative due to rounding on last step:
     let principal = monthlyPaymentVal - interest;
-    // if we're at the last payment, make principal = remaining balance (avoid tiny negative)
     if (i === n - 1) principal = balance;
-    // ensure neither is NaN
-    schedule.push({
-      interest: Math.max(0, interest),
-      principal: Math.max(0, principal)
-    });
+    schedule.push({ interest: Math.max(0, interest), principal: Math.max(0, principal) });
     balance -= principal;
     if (balance < 0.0001) balance = 0;
   }
   return schedule;
 }
 
-// render/update charts
+// Render charts
 async function renderCharts() {
   if (!isValid.value) return;
+  await nextTick();
 
-  await nextTick(); // ensure canvas elements exist
+  // Principal vs Interest
+  if (chartBreakdownInstance) chartBreakdownInstance.destroy();
+  chartBreakdownInstance = new Chart(chartBreakdown.value.getContext("2d"), {
+    type: "bar",
+    data: {
+      labels: ["Principal", "Interest"],
+      datasets: [{ data: [Number(amount.value), Number(totalInterest.value)], backgroundColor: ["#4CAF50", "#FF5722"], borderRadius: 6 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+  });
 
-  // --- Principal vs Interest (compact bar) ---
-  try {
-    if (!chartBreakdown.value || !chartMonthly.value) return;
+  // Monthly stacked
+  if (chartMonthlyInstance) chartMonthlyInstance.destroy();
+  const schedule = generateAmortizationSchedule(Number(amount.value), monthlyRate.value, Number(months.value), Number(monthlyPayment.value));
+  const labels = schedule.map((_, i) => `M${i+1}`);
+  const interestData = schedule.map(s => Number(s.interest.toFixed(2)));
+  const principalData = schedule.map(s => Number(s.principal.toFixed(2)));
 
-    if (chartBreakdownInstance) {
-      chartBreakdownInstance.destroy();
-      chartBreakdownInstance = null;
+  chartMonthlyInstance = new Chart(chartMonthly.value.getContext("2d"), {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        { label: "Interest", data: interestData, backgroundColor: "#FF5722", stack: "stack1" },
+        { label: "Principal", data: principalData, backgroundColor: "#4CAF50", stack: "stack1" }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: "bottom" } },
+      scales: { x: { stacked: true, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12 } }, y: { stacked: true, beginAtZero: true, title: { display: true, text: "Amount (KES)" } } }
     }
-
-    const ctx1 = chartBreakdown.value.getContext("2d");
-    chartBreakdownInstance = new Chart(ctx1, {
-      type: "bar",
-      data: {
-        labels: ["Principal", "Interest"],
-        datasets: [{
-          data: [Number(amount.value), Number(totalInterest.value)],
-          backgroundColor: ["#4CAF50", "#FF5722"],
-          borderRadius: 6
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: { y: { beginAtZero: true, title: { display: false } } }
-      }
-    });
-  } catch (err) {
-    console.error("Chart (breakdown) error:", err);
-  }
-
-  // --- Monthly stacked amortization chart ---
-  try {
-    if (chartMonthlyInstance) {
-      chartMonthlyInstance.destroy();
-      chartMonthlyInstance = null;
-    }
-
-    const ctx2 = chartMonthly.value.getContext("2d");
-
-    const P = Number(amount.value);
-    const n = Number(months.value);
-    const r = monthlyRate.value;
-    const monthlyPaymentVal = Number(monthlyPayment.value);
-
-    // generate schedule (principal + interest portion for each month)
-    const schedule = generateAmortizationSchedule(P, r, n, monthlyPaymentVal);
-    const labels = schedule.map((_, i) => `M${i + 1}`);
-    const interestData = schedule.map((s) => Number(s.interest.toFixed(2)));
-    const principalData = schedule.map((s) => Number(s.principal.toFixed(2)));
-
-    chartMonthlyInstance = new Chart(ctx2, {
-      type: "bar",
-      data: {
-        labels,
-        datasets: [
-          { label: "Interest", data: interestData, backgroundColor: "#FF5722", stack: "stack1" },
-          { label: "Principal", data: principalData, backgroundColor: "#4CAF50", stack: "stack1" }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { position: "bottom" } },
-        scales: {
-          x: { stacked: true, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12 } },
-          y: { stacked: true, beginAtZero: true, title: { display: true, text: "Amount (KES)" } }
-        }
-      }
-    });
-  } catch (err) {
-    console.error("Chart (monthly) error:", err);
-  }
+  });
 }
 
-// watch input changes and update charts (debounce not strictly needed)
 watch([amount, months, selectedLoan], () => {
   if (isValid.value) renderCharts();
 });
 </script>
 
 <style scoped>
-.loan-calculator {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 2rem;
-}
-
-/* input card */
-.calculator-card {
-  background: white;
-  padding: 1.25rem;
-  width: 420px;
-  max-width: 95%;
-  border-radius: 10px;
-  box-shadow: 0 6px 18px rgba(12, 17, 20, 0.06);
-  margin-bottom: 1.25rem;
-}
-
+.loan-calculator { display: flex; flex-direction: column; align-items: center; padding: 2rem; }
+.calculator-card { background: white; padding: 1.25rem; width: 420px; max-width: 95%; border-radius: 10px; box-shadow: 0 6px 18px rgba(12,17,20,0.06); margin-bottom: 1.25rem; }
 .form-group { margin-bottom: 1rem; }
 label { font-weight: 600; display: block; margin-bottom: .35rem; }
-input, select {
-  width: 100%;
-  padding: .55rem;
-  border-radius: 6px;
-  border: 1px solid #ddd;
-  font-size: .95rem;
-}
-
-/* layout for results + charts */
-.results-and-charts {
-  width: 100%;
-  max-width: 1000px;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-/* results */
-.results-card {
-  background: white;
-  padding: 1rem;
-  border-radius: 10px;
-  box-shadow: 0 6px 18px rgba(12, 17, 20, 0.04);
-}
-
-/* charts area */
-.charts-area {
-  display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
-  justify-content: space-between;
-}
-
-/* chart cards smaller */
-.chart-card {
-  background: white;
-  padding: 0.8rem;
-  border-radius: 10px;
-  box-shadow: 0 6px 18px rgba(12, 17, 20, 0.04);
-  display: flex;
-  flex-direction: column;
-  gap: .5rem;
-}
-
-/* small vs large sizing */
+input, select { width: 100%; padding: .55rem; border-radius: 6px; border: 1px solid #ddd; font-size: .95rem; }
+.results-and-charts { width: 100%; max-width: 1000px; display: flex; flex-direction: column; gap: 1rem; }
+.results-card { background: white; padding: 1rem; border-radius: 10px; box-shadow: 0 6px 18px rgba(12,17,20,0.04); }
+.charts-area { display: flex; gap: 1rem; flex-wrap: wrap; justify-content: space-between; }
+.chart-card { background: white; padding: 0.8rem; border-radius: 10px; box-shadow: 0 6px 18px rgba(12,17,20,0.04); display: flex; flex-direction: column; gap: .5rem; }
 .chart-card.small { width: 320px; height: 220px; }
 .chart-card.large { flex: 1 1 620px; min-width: 320px; height: 220px; }
-
-/* ensure canvas fills card */
 .chart-card canvas { width: 100% !important; height: 100% !important; display: block; }
-
-/* note */
 .note { margin-top: .8rem; color: #666; font-size: .9rem; text-align: center; }
 </style>

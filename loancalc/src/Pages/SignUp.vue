@@ -1,12 +1,24 @@
 <script setup>
 import { ref } from "vue";
+import { useRouter } from "vue-router";
+import { useAuth } from "../composables/useAuth.js";
+
+const router = useRouter();
+const { setUser } = useAuth();
 
 const name = ref("");
 const email = ref("");
 const password = ref("");
+const loading = ref(false);
+const error = ref("");
+const success = ref("");
 
 async function handleSignup() {
   try {
+    loading.value = true;
+    error.value = "";
+    success.value = "";
+
     const res = await fetch("http://127.0.0.1:8000/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -23,16 +35,19 @@ async function handleSignup() {
     }
 
     const data = await res.json();
-    console.log("✅ Signup success", data);
-    alert("🎉 Account created successfully! Please Log in");
-    router.push("/login");
+    console.log("✅ Signup success:", data);
+
+    setUser(data); // save to reactive state + localStorage
+    success.value = `🎉 Welcome, ${data.name}!`;
+    router.push("/dashboard"); // redirect after signup
   } catch (err) {
     console.error(err);
-    alert(err.message);
+    error.value = err.message;
+  } finally {
+    loading.value = false;
   }
 }
 </script>
-
 
 <template>
   <div class="auth-page">
@@ -74,26 +89,42 @@ async function handleSignup() {
 
 <style scoped>
 .auth-page {
-  display: flex; justify-content: center; align-items: center;
-  min-height: 100vh; background: #f8fafc;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: #f8fafc;
 }
 .auth-card {
-  background: white; padding: 2rem; border-radius: 1rem;
+  background: white;
+  padding: 2rem;
+  border-radius: 1rem;
   box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-  width: 100%; max-width: 400px; text-align: center;
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
 }
 h1 { font-size: 1.75rem; margin-bottom: 0.5rem; }
 .subtitle { color: #64748b; margin-bottom: 1.5rem; }
 .form-group { text-align: left; margin-bottom: 1rem; }
 label { display: block; margin-bottom: 0.25rem; font-weight: 500; }
 input {
-  width: 100%; padding: 0.75rem; border: 1px solid #cbd5e1;
-  border-radius: 0.5rem; outline: none;
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  outline: none;
 }
 input:focus { border-color: #3b82f6; }
 .btn {
-  width: 100%; padding: 0.75rem; background: #3b82f6; color: white;
-  border: none; border-radius: 0.5rem; cursor: pointer; font-weight: 600;
+  width: 100%;
+  padding: 0.75rem;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  font-weight: 600;
 }
 .btn:disabled { background: #94a3b8; cursor: not-allowed; }
 .switch { margin-top: 1rem; color: #64748b; }

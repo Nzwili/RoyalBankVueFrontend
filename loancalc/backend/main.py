@@ -4,19 +4,24 @@ from app.routes import auth
 
 app = FastAPI()
 
-# ✅ Allow your Vue frontend to connect
+# Allow your Vue frontend to connect
 origins = [
-    "http://localhost:5173",   # Vue dev server
-    "http://127.0.0.1:5173",   # Sometimes Vue runs on 127.0.0.1
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,      # or ["*"] to allow all
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],        # Allow all HTTP methods (GET, POST, etc.)
-    allow_headers=["*"],        # Allow all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# ✅ Include your routes
+# Include your routes
 app.include_router(auth.router)
+
+# Root route
+@app.get("/")
+def root():
+    return {"message": "Backend is running"}

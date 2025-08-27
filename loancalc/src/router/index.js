@@ -10,6 +10,7 @@ import Blog from '../Pages/Blog.vue'
 import Support from '../Pages/Support.vue'
 import Services from '../Pages/Services.vue'
 import ServiceDetail from '../Pages/ServiceDetail.vue'
+import dashboard from '../views/dashboard.vue'
 
 const routes = [
   { path: '/', component: Home },
@@ -32,5 +33,18 @@ const router = createRouter({
   history: createWebHistory(),
   routes
 })
+
+// Navigation guard
+router.beforeEach((to, from, next) => {
+  const user = localStorage.getItem("user");
+
+  if (to.meta.requiresAuth && !user) {
+    alert("Please log in first!");
+    next("/login");
+  } else {
+    next();
+  }
+});
+
 
 export default router
