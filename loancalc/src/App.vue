@@ -1,27 +1,43 @@
 <template>
   <div id="app">
     <Navbar />
+
     <main class="content">
       <router-view /> <!-- Page content renders here -->
     </main>
-    <HelpBot />
+
     <Footer />
   </div>
 </template>
 
 <script setup>
-import Footer from './components/Footer.vue';
-import HelpBot from './components/HelpBot.vue';
 import Navbar from './components/Navbar.vue'
+import Footer from './components/Footer.vue'
 </script>
 
 <style>
-body {
+/* Reset margins/paddings */
+* {
   margin: 0;
-  font-family: Arial, sans-serif;
+  padding: 0;
+  box-sizing: border-box;
 }
+
+body {
+  font-family: Arial, sans-serif;
+  background: #f9f9f9;
+  color: #333;
+}
+
+/* Main area should not push navbar/footer weirdly */
+#app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
 .content {
-  min-height: calc(100vh - 60px); /* adjust for navbar height */
+  flex: 1;
   padding: 2rem;
 }
 </style>
